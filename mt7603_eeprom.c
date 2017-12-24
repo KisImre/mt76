@@ -90,7 +90,6 @@ mt7603_has_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
 
 	if (!efuse[MT_EE_CP_FT_VERSION])
 		return false;
-    }
 
 	if (!efuse[MT_EE_XTAL_FREQ_OFFSET])
 		return false;
@@ -126,12 +125,12 @@ mt7603_apply_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
     }
 
 	if (is_mt7628(dev)) {
-		n -= 2;
+		//n -= 2;
     }
 
 	for (i = 0; i < n; i++) {
 	    int offset = cal_free_bytes[i];
-        printk("mt7603_apply_cal_free_data eeprom[%02X] = %02X vs efuse[%20X] = %02X\n", offset, eeprom[offset], offset, efuse[offset]);
+        printk("mt7603_apply_cal_free_data eeprom[%02X] = %02X vs efuse[%02X] = %02X\n", offset, eeprom[offset], offset, efuse[offset]);
 	    //eeprom[offset] = efuse[offset];
 	}
 }
