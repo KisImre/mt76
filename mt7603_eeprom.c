@@ -105,10 +105,10 @@ static void
 mt7603_apply_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
 {
     static const u8 cal_free_bytes[] = {
-        MT_EE_TEMP_SENSOR_CAL,
+        /*MT_EE_TEMP_SENSOR_CAL,
         MT_EE_TX_POWER_1_START_2G,
         MT_EE_TX_POWER_1_START_2G + 1,
-        MT_EE_CP_FT_VERSION,
+        MT_EE_CP_FT_VERSION,*/
         MT_EE_XTAL_FREQ_OFFSET,
         MT_EE_XTAL_WF_RFCAL,
         /* Skip for MT7628 */
@@ -125,7 +125,7 @@ mt7603_apply_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
     }
 
 	if (is_mt7628(dev)) {
-		//n -= 2;
+		n -= 2;
     }
 
 	for (i = 0; i < n; i++) {
