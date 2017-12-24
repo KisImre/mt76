@@ -79,23 +79,37 @@ mt7603_efuse_init(struct mt7603_dev *dev)
 static bool
 mt7603_has_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
 {
-	if (!efuse[MT_EE_TEMP_SENSOR_CAL])
+	if (!efuse[MT_EE_TEMP_SENSOR_CAL]) {
+        printk("mt7603_has_cal_free_data %d", __LINE__);
 		return false;
+    }
 
-	if (get_unaligned_le16(efuse + MT_EE_TX_POWER_0_START_2G) == 0)
+	if (get_unaligned_le16(efuse + MT_EE_TX_POWER_0_START_2G) == 0) {
+        printk("mt7603_has_cal_free_data %d", __LINE__);
 		return false;
+    }
 
-	if (get_unaligned_le16(efuse + MT_EE_TX_POWER_1_START_2G) == 0)
+	if (get_unaligned_le16(efuse + MT_EE_TX_POWER_1_START_2G) == 0) {
+        printk("mt7603_has_cal_free_data %d", __LINE__);
 		return false;
+    }
 
-	if (!efuse[MT_EE_CP_FT_VERSION])
+	if (!efuse[MT_EE_CP_FT_VERSION]) {
+        printk("mt7603_has_cal_free_data %d", __LINE__);
 		return false;
+    }
 
-	if (!efuse[MT_EE_XTAL_FREQ_OFFSET])
+	if (!efuse[MT_EE_XTAL_FREQ_OFFSET]) {
+        printk("mt7603_has_cal_free_data %d", __LINE__);
 		return false;
+    }
 
-	if (!efuse[MT_EE_XTAL_WF_RFCAL])
+	if (!efuse[MT_EE_XTAL_WF_RFCAL]) {
+        printk("mt7603_has_cal_free_data %d", __LINE__);
 		return false;
+    }
+
+    printk("mt7603_has_cal_free_data %d", __LINE__);
 
 	return true;
 }
@@ -109,11 +123,15 @@ mt7603_apply_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
 	int n = ARRAY_SIZE(cal_free_bytes);
 	int i;
 
-	if (!mt7603_has_cal_free_data(dev, efuse))
+	if (!mt7603_has_cal_free_data(dev, efuse)) {
+        printk("mt7603_apply_cal_free_data no cal free data");
 	    return;
+    }
 
-	if (is_mt7628(dev))
+	if (is_mt7628(dev)) {
+        printk("mt7603_apply_cal_free_data is_mt7628");
 		n -= 2;
+    }
 
 	for (i = 0; i < n; i++) {
 	    int offset = cal_free_bytes[i];
@@ -141,8 +159,10 @@ static int mt7603_check_eeprom(struct mt76_dev *dev)
 	switch (val) {
 	case 0x7628:
 	case 0x7603:
+        printk("mt7603_check_eeprom, valid value: %04X", val);
 		return 0;
 	default:
+        printk("mt7603_check_eeprom, invalid value");
 		return -EINVAL;
 	}
 }
@@ -153,14 +173,19 @@ int mt7603_eeprom_init(struct mt7603_dev *dev)
 	int ret;
 
 	ret = mt7603_eeprom_load(dev);
-	if (ret < 0)
+	if (ret < 0) {
+        printk("mt7603_eeprom_load result: %d", ret);
 		return ret;
+    }
 
-	if (mt7603_check_eeprom(&dev->mt76) == 0)
+	if (mt7603_check_eeprom(&dev->mt76) == 0) {
+        printk("mt7603_check_eeprom result: 0, applying cal_free_data");
 		mt7603_apply_cal_free_data(dev, dev->mt76.otp.data);
-	else
+    } else {
+        printk("mt7603_check_eeprom result: x, copying otp data");
 		memcpy(dev->mt76.eeprom.data, dev->mt76.otp.data,
 		       MT7603_EEPROM_SIZE);
+    }
 
 	dev->mt76.cap.has_2ghz = true;
 	memcpy(dev->mt76.macaddr, dev->mt76.eeprom.data + MT_EE_MAC_ADDR,
