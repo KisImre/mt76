@@ -79,37 +79,24 @@ mt7603_efuse_init(struct mt7603_dev *dev)
 static bool
 mt7603_has_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
 {
-	if (!efuse[MT_EE_TEMP_SENSOR_CAL]) {
-        printk("mt7603_has_cal_free_data %d", __LINE__);
+	if (!efuse[MT_EE_TEMP_SENSOR_CAL])
+		return false;
+
+	if (get_unaligned_le16(efuse + MT_EE_TX_POWER_0_START_2G) == 0)
+		return false;
+
+	if (get_unaligned_le16(efuse + MT_EE_TX_POWER_1_START_2G) == 0)
+		return false;
+
+	if (!efuse[MT_EE_CP_FT_VERSION])
 		return false;
     }
 
-	if (get_unaligned_le16(efuse + MT_EE_TX_POWER_0_START_2G) == 0) {
-        printk("mt7603_has_cal_free_data %d", __LINE__);
+	if (!efuse[MT_EE_XTAL_FREQ_OFFSET])
 		return false;
-    }
 
-	if (get_unaligned_le16(efuse + MT_EE_TX_POWER_1_START_2G) == 0) {
-        printk("mt7603_has_cal_free_data %d", __LINE__);
+	if (!efuse[MT_EE_XTAL_WF_RFCAL])
 		return false;
-    }
-
-	if (!efuse[MT_EE_CP_FT_VERSION]) {
-        printk("mt7603_has_cal_free_data %d", __LINE__);
-		return false;
-    }
-
-	if (!efuse[MT_EE_XTAL_FREQ_OFFSET]) {
-        printk("mt7603_has_cal_free_data %d", __LINE__);
-		return false;
-    }
-
-	if (!efuse[MT_EE_XTAL_WF_RFCAL]) {
-        printk("mt7603_has_cal_free_data %d", __LINE__);
-		return false;
-    }
-
-    printk("mt7603_has_cal_free_data %d", __LINE__);
 
 	return true;
 }
@@ -118,24 +105,34 @@ mt7603_has_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
 static void
 mt7603_apply_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
 {
-	static const u8 cal_free_bytes[] = {};
+    static const u8 cal_free_bytes[] = {
+        MT_EE_TEMP_SENSOR_CAL,
+        MT_EE_TX_POWER_1_START_2G,
+        MT_EE_TX_POWER_1_START_2G + 1,
+        MT_EE_CP_FT_VERSION,
+        MT_EE_XTAL_FREQ_OFFSET,
+        MT_EE_XTAL_WF_RFCAL,
+        /* Skip for MT7628 */
+        MT_EE_TX_POWER_0_START_2G,
+        MT_EE_TX_POWER_0_START_2G + 1,
+    };
+
 	u8 *eeprom = dev->mt76.eeprom.data;
 	int n = ARRAY_SIZE(cal_free_bytes);
 	int i;
 
 	if (!mt7603_has_cal_free_data(dev, efuse)) {
-        printk("mt7603_apply_cal_free_data no cal free data");
 	    return;
     }
 
 	if (is_mt7628(dev)) {
-        printk("mt7603_apply_cal_free_data is_mt7628");
 		n -= 2;
     }
 
 	for (i = 0; i < n; i++) {
 	    int offset = cal_free_bytes[i];
-	    eeprom[offset] = efuse[offset];
+        printk("mt7603_apply_cal_free_data eeprom[%02X] = %02X vs efuse[%20X] = %02X\n", offset, eeprom[offset], offset, efuse[offset]);
+	    //eeprom[offset] = efuse[offset];
 	}
 }
 
