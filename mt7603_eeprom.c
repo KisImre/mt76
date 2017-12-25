@@ -125,7 +125,7 @@ mt7603_apply_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
 	    eeprom[offset] = efuse[offset];
 	}
 
-    for (int i = 0; i < 256; ++i) {
+    for (i = 0; i < 256; ++i) {
         printk("mt7603_apply_cal_free_data1 eeprom[%02X] = %02X vs efuse[%02X] = %02X\n", i, eeprom[i], i, efuse[i]);
     } 
 
@@ -138,7 +138,7 @@ mt7603_apply_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
     eeprom[0xF4] = 0x80;
     eeprom[0xF7] = 0x88;
 
-    for (int i = 0; i < 256; ++i) {
+    for (i = 0; i < 256; ++i) {
         printk("mt7603_apply_cal_free_data2 eeprom[%02X] = %02X vs efuse[%02X] = %02X\n", i, eeprom[i], i, efuse[i]);
     } 
 }
