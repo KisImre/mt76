@@ -121,20 +121,12 @@ mt7603_apply_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
 
 	for (i = 0; i < n; i++) {
 	    int offset = cal_free_bytes[i];
-        printk("mt7603_apply_cal_free_data eeprom[%02X] = %02X vs efuse[%02X] = %02X\n", offset, eeprom[offset], offset, efuse[offset]);
 	    eeprom[offset] = efuse[offset];
 	}
 
 
-    eeprom[0x34] = 0x11;
-    eeprom[0x55] = 0xB4;
-    eeprom[0x56] = 0xC0;
-    eeprom[0x57] = 0xCA;
-    eeprom[0x5C] = 0x40;
-    eeprom[0x5D] = 0xCA;
-    eeprom[0xF0] = 0x02;
-    eeprom[0xF4] = 0x80;
-    eeprom[0xF7] = 0x88;
+    eeprom[0x58] = 0x27;
+    eeprom[0x5E] = 0x27;
 }
 
 
@@ -157,10 +149,8 @@ static int mt7603_check_eeprom(struct mt76_dev *dev)
 	switch (val) {
 	case 0x7628:
 	case 0x7603:
-        printk("mt7603_check_eeprom, valid value: %04X", val);
 		return 0;
 	default:
-        printk("mt7603_check_eeprom, invalid value");
 		return -EINVAL;
 	}
 }
@@ -172,15 +162,12 @@ int mt7603_eeprom_init(struct mt7603_dev *dev)
 
 	ret = mt7603_eeprom_load(dev);
 	if (ret < 0) {
-        printk("mt7603_eeprom_load result: %d", ret);
 		return ret;
     }
 
 	if (mt7603_check_eeprom(&dev->mt76) == 0) {
-        printk("mt7603_check_eeprom result: 0, applying cal_free_data");
 		mt7603_apply_cal_free_data(dev, dev->mt76.otp.data);
     } else {
-        printk("mt7603_check_eeprom result: x, copying otp data");
 		memcpy(dev->mt76.eeprom.data, dev->mt76.otp.data,
 		       MT7603_EEPROM_SIZE);
     }
