@@ -124,6 +124,15 @@ mt7603_apply_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
         printk("mt7603_apply_cal_free_data eeprom[%02X] = %02X vs efuse[%02X] = %02X\n", offset, eeprom[offset], offset, efuse[offset]);
 	    eeprom[offset] = efuse[offset];
 	}
+
+    eeprom[0x55] = 0xB0;
+    eeprom[0x56] = 0x40;
+    eeprom[0x57] = 0xC6;
+    eeprom[0x5C] = 0xC0;
+    eeprom[0x5D] = 0xC5;
+    eeprom[0xF0] = 0x00;
+    eeprom[0xF4] = 0x9B;
+    eeprom[0xF7] = 0x88;
 }
 
 
