@@ -124,9 +124,18 @@ mt7603_apply_cal_free_data(struct mt7603_dev *dev, u8 *efuse)
 	    eeprom[offset] = efuse[offset];
 	}
 
-
-    eeprom[0x58] = 0x27;
-    eeprom[0x5E] = 0x27;
+    eeprom[0x55] = 0xBC;
+    eeprom[0x59] = 0xC0;
+    eeprom[0x5A] = 0xC0;
+    eeprom[0x5B] = 0xC2;
+    eeprom[0x5C] = 0x40;
+    eeprom[0x5D] = 0xCA;
+    eeprom[0x5E] = 0x1E;
+    eeprom[0x5F] = 0x9E;
+    eeprom[0x60] = 0x9E;
+    eeprom[0x61] = 0x9E;
+    // OK 82 00 00 94 40 bc c0 ca  1e c0 c0 c2 40 ca 1e 9e
+    //FOS 82 00 00 94 40 b4 c0 ca  1e 81 c1 c1 40 ca 23 00
 }
 
 
