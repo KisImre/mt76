@@ -16,7 +16,8 @@
 
 #include "mt76_rf.h"
 
-#define CSR_RF_CFG  (0x0500)
+#define CSR_RF_CFG  (0x00004500)
+
 #define RF_START_OP (0x00020000)
 #define RF_BUSY     (0x00020000)
 #define RF_READ     (0x00000000)
