@@ -141,21 +141,6 @@ mt7603_phy_init(struct mt7603_dev *dev)
 		       tx_chains);
 }
 
-#define RF_START_OP	(0x00020000)
-#define RF_READ 	(0x00000000)
-#define RF_WRITE 	(0x00010000)
-#define RF_ADDR(a) 	(((a) & 0x3F) << 8)
-#define RF_DATA(d) 	((d) & 0xFF)
-
-static void rf_read(u8 address, u8* data) {
-	u32 raw = RF_START_OP | RF_READ | RF_ADDR(address) | RF_DATA(0);
-}
-
-static void rf_write(u8 address, u8 data) {
-	u32 raw = RF_START_OP | RF_WRITE | RF_ADDR(address) | RF_DATA(data);
-
-}
-
 static void
 mt7603_mac_init(struct mt7603_dev *dev)
 {
