@@ -39,7 +39,7 @@ mt76_rfreg_set(void *data, u64 val)
 {
 	struct mt7603_dev *dev = data;
 
-	mt76_rf_write(dev, dev->debugfs_rfreg, val);
+	mt76_rf_write(dev, dev->mt76.debugfs_rfreg, val);
 	return 0;
 }
 
@@ -49,7 +49,7 @@ mt76_rfreg_get(void *data, u64 *val)
 	struct mt7603_dev *dev = data;
 	u8 temp;
 
-	mt76_rf_read(dev, dev->debugfs_rfreg, &temp);
+	mt76_rf_read(dev, dev->mt76.debugfs_rfreg, &temp);
 	*val = temp;
 	return 0;
 }
