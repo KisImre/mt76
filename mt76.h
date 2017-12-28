@@ -223,6 +223,7 @@ struct mt76_dev {
 	struct mt76_hw_cap cap;
 
 	u32 debugfs_reg;
+	u32 debugfs_rfreg;
 
 	struct led_classdev led_cdev;
 	char led_name[32];
