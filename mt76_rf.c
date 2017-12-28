@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "mt7603.h"
+#include "mt76_rf.h"
 
 #define CSR_RF_CFG  (0x0500)
 #define RF_START_OP (0x00020000)
@@ -24,7 +24,7 @@
 #define RF_ADDR(a)  (((a) & 0x3F) << 8)
 #define RF_DATA(d)  ((d) & 0xFF)
 
-static void mt76_rf_busyWait(struct mt7603_dev *dev) {
+static void mt76_rf_busyWait(struct mt76_dev *dev) {
     u8 i;
     u32 raw;
 
@@ -40,7 +40,7 @@ static void mt76_rf_busyWait(struct mt7603_dev *dev) {
     printk("rf_read timeout\n");
 }
 
-void mt76_rf_read(struct mt7603_dev *dev, u8 address, u8* data) {
+void mt76_rf_read(struct mt76_dev *dev, u8 address, u8* data) {
     u32 raw;
 
     printk("rf_read: %d\n", address);
@@ -50,7 +50,7 @@ void mt76_rf_read(struct mt7603_dev *dev, u8 address, u8* data) {
     printk("rf_read result: %d = %02X\n", address, *data);
 }
 
-void mt76_rf_write(struct mt7603_dev *dev, u8 address, u8 data) {
+void mt76_rf_write(struct mt76_dev *dev, u8 address, u8 data) {
     u32 raw;
  
     printk("rf_write: %d\n", address);

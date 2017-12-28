@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "mt76.h"
-#include "mt7603_rf.h"
+#include "mt76_rf.h"
 
 static int
 mt76_reg_set(void *data, u64 val)
@@ -37,19 +37,19 @@ mt76_reg_get(void *data, u64 *val)
 static int
 mt76_rfreg_set(void *data, u64 val)
 {
-	struct mt7603_dev *dev = data;
+	struct mt76_dev *dev = data;
 
-	mt76_rf_write(dev, dev->mt76.debugfs_rfreg, val);
+	mt76_rf_write(dev, dev->debugfs_rfreg, val);
 	return 0;
 }
 
 static int
 mt76_rfreg_get(void *data, u64 *val)
 {
-	struct mt7603_dev *dev = data;
+	struct mt76_dev *dev = data;
 	u8 temp;
 
-	mt76_rf_read(dev, dev->mt76.debugfs_rfreg, &temp);
+	mt76_rf_read(dev, dev->debugfs_rfreg, &temp);
 	*val = temp;
 	return 0;
 }
