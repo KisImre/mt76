@@ -29,7 +29,7 @@ static void mt76_rf_busyWait(struct mt76_dev *dev) {
     u32 raw;
 
     for (i = 0; i < 100; i++) {
-        raw = mt76_rr(dev, CSR_RF_CFG);
+        raw = dev->bus->rr(dev, CSR_RF_CFG);
         if ((raw & RF_BUSY) == 0) {
             return;
         }
@@ -45,7 +45,7 @@ void mt76_rf_read(struct mt76_dev *dev, u8 address, u8* data) {
 
     printk("rf_read: %d\n", address);
     raw = RF_START_OP | RF_READ | RF_ADDR(address) | RF_DATA(0);
-    mt76_wr(dev, CSR_RF_CFG, raw);
+    dev->bus->wr(dev, CSR_RF_CFG, raw);
     mt76_rf_busyWait(dev);
     printk("rf_read result: %d = %02X\n", address, *data);
 }
@@ -55,7 +55,7 @@ void mt76_rf_write(struct mt76_dev *dev, u8 address, u8 data) {
  
     printk("rf_write: %d\n", address);
     raw = RF_START_OP | RF_WRITE | RF_ADDR(address) | RF_DATA(data);
-    mt76_wr(dev, CSR_RF_CFG, raw);
+    dev->bus->wr(dev, CSR_RF_CFG, raw);
     mt76_rf_busyWait(dev);
     printk("rf_write finished");
 }
