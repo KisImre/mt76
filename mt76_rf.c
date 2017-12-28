@@ -47,6 +47,8 @@ void mt76_rf_read(struct mt76_dev *dev, u8 address, u8* data) {
     raw = RF_START_OP | RF_READ | RF_ADDR(address) | RF_DATA(0);
     dev->bus->wr(dev, CSR_RF_CFG, raw);
     mt76_rf_busyWait(dev);
+    raw = dev->bus->rr(dev, CSR_RF_CFG);
+    *data = (raw & 0xFF);
     printk("rf_read result: %d = %02X\n", address, *data);
 }
 
