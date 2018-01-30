@@ -350,16 +350,61 @@ mt7603_get_rate(struct mt7603_dev *dev, struct ieee80211_supported_band *sband,
 	return 0;
 }
 
+static struct mt76_wcid *
+mt7603_rx_get_wcid(struct mt7603_dev *dev, u8 idx, bool unicast)
+{
+	struct mt7603_sta *sta;
+	struct mt76_wcid *wcid;
+
+	if (idx >= ARRAY_SIZE(dev->wcid))
+		return NULL;
+
+	wcid = rcu_dereference(dev->wcid[idx]);
+	if (unicast || !wcid)
+		return wcid;
+
+	sta = container_of(wcid, struct mt7603_sta, wcid);
+	return &sta->vif->wcid;
+}
+
+static void
+mt7603_insert_ccmp_hdr(struct sk_buff *skb, u8 key_id)
+{
+	struct mt76_rx_status *status = (struct mt76_rx_status *) skb->cb;
+	int hdr_len = ieee80211_get_hdrlen_from_skb(skb);
+	u8 *pn = status->iv;
+	u8 *hdr;
+
+	__skb_push(skb, 8);
+	memmove(skb->data, skb->data + 8, hdr_len);
+	hdr = skb->data + hdr_len;
+
+	hdr[0] = pn[5];
+	hdr[1] = pn[4];
+	hdr[2] = 0;
+	hdr[3] = 0x20 | (key_id << 6);
+	hdr[4] = pn[3];
+	hdr[5] = pn[2];
+	hdr[6] = pn[1];
+	hdr[7] = pn[0];
+
+	status->flag &= ~RX_FLAG_IV_STRIPPED;
+}
+
 int
 mt7603_mac_fill_rx(struct mt7603_dev *dev, struct sk_buff *skb)
 {
-	struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);
+	struct mt76_rx_status *status = (struct mt76_rx_status *) skb->cb;
 	struct ieee80211_supported_band *sband;
+	struct ieee80211_hdr *hdr;
 	__le32 *rxd = (__le32 *) skb->data;
 	u32 rxd0 = le32_to_cpu(rxd[0]);
 	u32 rxd1 = le32_to_cpu(rxd[1]);
 	u32 rxd2 = le32_to_cpu(rxd[2]);
+	bool unicast = rxd1 & MT_RXD1_NORMAL_U2M;
+	bool insert_ccmp_hdr = false;
 	bool remove_pad;
+	int idx;
 	int i;
 
 	memset(status, 0, sizeof(*status));
@@ -367,6 +412,9 @@ mt7603_mac_fill_rx(struct mt7603_dev *dev, struct sk_buff *skb)
 	i = FIELD_GET(MT_RXD1_NORMAL_CH_FREQ, rxd1);
 	sband = (i & 1) ? &dev->mt76.sband_5g.sband : &dev->mt76.sband_2g.sband;
 	i >>= 1;
+
+	idx = FIELD_GET(MT_RXD2_NORMAL_WLAN_IDX, rxd2);
+	status->wcid = mt7603_rx_get_wcid(dev, idx, unicast);
 
 	status->band = sband->band;
 	if (i < sband->n_channels)
@@ -381,7 +429,8 @@ mt7603_mac_fill_rx(struct mt7603_dev *dev, struct sk_buff *skb)
 	if (FIELD_GET(MT_RXD2_NORMAL_SEC_MODE, rxd2) != 0 &&
 	    !(rxd2 & (MT_RXD2_NORMAL_CLM | MT_RXD2_NORMAL_CM))) {
 		status->flag |= RX_FLAG_DECRYPTED;
-		status->flag |= RX_FLAG_IV_STRIPPED | RX_FLAG_MMIC_STRIPPED;
+		status->flag |= RX_FLAG_IV_STRIPPED;
+		status->flag |= RX_FLAG_MMIC_STRIPPED | RX_FLAG_MIC_STRIPPED;
 	}
 
 	remove_pad = rxd1 & MT_RXD1_NORMAL_HDR_OFFSET;
@@ -399,6 +448,19 @@ mt7603_mac_fill_rx(struct mt7603_dev *dev, struct sk_buff *skb)
 			return -EINVAL;
 	}
 	if (rxd0 & MT_RXD0_NORMAL_GROUP_1) {
+		u8 *data = (u8 *) rxd;
+
+		if (status->flag & RX_FLAG_DECRYPTED) {
+		    status->iv[0] = data[5];
+		    status->iv[1] = data[4];
+		    status->iv[2] = data[3];
+		    status->iv[3] = data[2];
+		    status->iv[4] = data[1];
+		    status->iv[5] = data[0];
+
+		    insert_ccmp_hdr = FIELD_GET(MT_RXD2_NORMAL_FRAG, rxd2);
+		}
+
 		rxd += 4;
 		if ((u8 *) rxd - skb->data >= skb->len)
 			return -EINVAL;
@@ -434,6 +496,8 @@ mt7603_mac_fill_rx(struct mt7603_dev *dev, struct sk_buff *skb)
 
 		if (rxdg0 & MT_RXV1_HT_SHORT_GI)
 			status->enc_flags |= RX_ENC_FLAG_SHORT_GI;
+		if (rxdg0 & MT_RXV1_HT_AD_CODE)
+			status->enc_flags |= RX_ENC_FLAG_LDPC;
 
 		status->enc_flags |= RX_ENC_FLAG_STBC_MASK *
 				    FIELD_GET(MT_RXV1_HT_STBC, rxdg0);
@@ -447,12 +511,28 @@ mt7603_mac_fill_rx(struct mt7603_dev *dev, struct sk_buff *skb)
 					  dev->rssi_offset[1];
 		status->signal = max(status->chain_signal[0], status->chain_signal[1]);
 
+		if (FIELD_GET(MT_RXV1_FRAME_MODE, rxdg0) == 1)
+			status->bw = RATE_INFO_BW_40;
+
 		rxd += 6;
 		if ((u8 *) rxd - skb->data >= skb->len)
 			return -EINVAL;
 	}
 
 	skb_pull(skb, (u8 *) rxd - skb->data + 2 * remove_pad);
+
+	if (insert_ccmp_hdr) {
+		u8 key_id = FIELD_GET(MT_RXD1_NORMAL_KEY_ID, rxd1);
+		mt7603_insert_ccmp_hdr(skb, key_id);
+	}
+
+	hdr = (struct ieee80211_hdr *) skb->data;
+	if (!status->wcid || !ieee80211_is_data_qos(hdr->frame_control))
+		return 0;
+
+	status->aggr = unicast;
+	status->tid = *ieee80211_get_qos_ctl(hdr) & IEEE80211_QOS_CTL_TID_MASK;
+	status->seqno = hdr->seq_ctrl >> 4;
 
 	return 0;
 }

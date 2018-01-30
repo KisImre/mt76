@@ -69,9 +69,16 @@ struct mt7603_mcu {
 	bool running;
 };
 
+struct mt7603_vif {
+	u8 idx;
+
+	struct mt76_wcid wcid;
+};
+
 struct mt7603_sta {
 	struct mt76_wcid wcid; /* must be first */
 
+	struct mt7603_vif *vif;
 	struct ieee80211_tx_rate rates[8];
 	int rate_count;
 	int n_rates;
@@ -82,12 +89,6 @@ struct mt7603_sta {
 	int ampdu_count;
 	int ampdu_tx_count;
 	int ampdu_acked;
-};
-
-struct mt7603_vif {
-	u8 idx;
-
-	struct mt7603_sta sta;
 };
 
 #define MT7603_CB_DMA_DONE		BIT(0)
@@ -255,6 +256,7 @@ void mt7603_tx_complete_skb(struct mt76_dev *mdev, struct mt76_queue *q,
 void mt7603_queue_rx_skb(struct mt76_dev *mdev, enum mt76_rxq_id q,
 			 struct sk_buff *skb);
 void mt7603_rx_poll_complete(struct mt76_dev *mdev, enum mt76_rxq_id q);
+void mt7603_sta_ps(struct mt76_dev *mdev, struct ieee80211_sta *sta, bool ps);
 
 void mt7603_tbtt(struct mt7603_dev *dev);
 void mt7603_pre_tbtt_tasklet(unsigned long arg);

@@ -58,7 +58,7 @@ mt7603_txq_init(struct mt7603_dev *dev, struct ieee80211_txq *txq)
 		mtxq->wcid = &sta->wcid;
 	} else {
 		struct mt7603_vif *mvif = (struct mt7603_vif *) txq->vif->drv_priv;
-		mtxq->wcid = &mvif->sta.wcid;
+		mtxq->wcid = &mvif->wcid;
 	}
 
 	mt76_txq_init(&dev->mt76, txq);
@@ -89,14 +89,14 @@ mt7603_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 
 	idx = MT7603_WTBL_RESERVED - 1 - mvif->idx;
 	dev->vif_mask |= BIT(mvif->idx);
-	mvif->sta.wcid.idx = idx;
-	mvif->sta.wcid.hw_key_idx = -1;
+	mvif->wcid.idx = idx;
+	mvif->wcid.hw_key_idx = -1;
 
 	eth_broadcast_addr(bc_addr);
 	mt7603_wtbl_init(dev, idx, mvif->idx, bc_addr);
 	mt7603_wtbl_set_ps(dev, idx, false);
 
-	rcu_assign_pointer(dev->wcid[idx], &mvif->sta.wcid);
+	rcu_assign_pointer(dev->wcid[idx], &mvif->wcid);
 	mt7603_txq_init(dev, vif->txq);
 
 out:
@@ -110,7 +110,7 @@ mt7603_remove_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 {
 	struct mt7603_vif *mvif = (struct mt7603_vif *) vif->drv_priv;
 	struct mt7603_dev *dev = hw->priv;
-	int idx = mvif->sta.wcid.idx;
+	int idx = mvif->wcid.idx;
 
 	mt7603_beacon_set_timer(dev, mvif->idx, 0);
 
@@ -282,9 +282,13 @@ mt7603_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	for (i = 0; i < ARRAY_SIZE(sta->txq); i++)
 		mt7603_txq_init(dev, sta->txq[i]);
 
+	msta->wcid.sta = 1;
 	msta->wcid.idx = idx;
 	mt7603_wtbl_init(dev, idx, mvif->idx, sta->addr);
 	mt7603_wtbl_update_cap(dev, sta);
+
+	if (vif->type == NL80211_IFTYPE_AP)
+		set_bit(MT_WCID_FLAG_CHECK_PS, &msta->wcid.flags);
 
 	rcu_assign_pointer(dev->wcid[idx], &msta->wcid);
 
@@ -317,23 +321,14 @@ mt7603_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	return 0;
 }
 
-static void
-mt7603_sta_notify(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
-		enum sta_notify_cmd cmd, struct ieee80211_sta *sta)
+void
+mt7603_sta_ps(struct mt76_dev *mdev, struct ieee80211_sta *sta, bool ps)
 {
-	struct mt7603_dev *dev = hw->priv;
+	struct mt7603_dev *dev = container_of(mdev, struct mt7603_dev, mt76);
 	struct mt7603_sta *msta = (struct mt7603_sta *) sta->drv_priv;
 	int idx = msta->wcid.idx;
 
-	switch (cmd) {
-	case STA_NOTIFY_SLEEP:
-		mt7603_wtbl_set_ps(dev, idx, true);
-		mt76_stop_tx_queues(&dev->mt76, sta, false);
-		break;
-	case STA_NOTIFY_AWAKE:
-		mt7603_wtbl_set_ps(dev, idx, false);
-		break;
-	}
+	mt7603_wtbl_set_ps(dev, idx, ps);
 }
 
 static int
@@ -344,7 +339,7 @@ mt7603_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	struct mt7603_dev *dev = hw->priv;
 	struct mt7603_vif *mvif = (struct mt7603_vif *) vif->drv_priv;
 	struct mt7603_sta *msta = sta ? (struct mt7603_sta *) sta->drv_priv : NULL;
-	struct mt76_wcid *wcid = msta ? &msta->wcid : &mvif->sta.wcid;
+	struct mt76_wcid *wcid = msta ? &msta->wcid : &mvif->wcid;
 	int idx = key->keyidx;
 
 	/*
@@ -367,6 +362,7 @@ mt7603_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 
 		key = NULL;
 	}
+	mt76_wcid_key_setup(&dev->mt76, wcid, key);
 
 	return mt7603_wtbl_set_key(dev, wcid->idx, key);
 }
@@ -468,9 +464,12 @@ mt7603_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 
 	switch (action) {
 	case IEEE80211_AMPDU_RX_START:
+		mt76_rx_aggr_start(&dev->mt76, &msta->wcid, tid, *ssn,
+				   params->buf_size);
 		mt7603_mac_rx_ba_reset(dev, sta->addr, tid);
 		break;
 	case IEEE80211_AMPDU_RX_STOP:
+		mt76_rx_aggr_stop(&dev->mt76, &msta->wcid, tid);
 		break;
 	case IEEE80211_AMPDU_TX_OPERATIONAL:
 		mtxq->aggr = true;
@@ -538,6 +537,12 @@ static void mt7603_tx(struct ieee80211_hw *hw, struct ieee80211_tx_control *cont
 	mt76_tx(&dev->mt76, control->sta, wcid, skb);
 }
 
+static int
+mt7603_set_tim(struct ieee80211_hw *hw, struct ieee80211_sta *sta, bool set)
+{
+	return 0;
+}
+
 const struct ieee80211_ops mt7603_ops = {
 	.tx = mt7603_tx,
 	.start = mt7603_start,
@@ -549,7 +554,6 @@ const struct ieee80211_ops mt7603_ops = {
 	.bss_info_changed = mt7603_bss_info_changed,
 	.sta_add = mt7603_sta_add,
 	.sta_remove = mt7603_sta_remove,
-	.sta_notify = mt7603_sta_notify,
 	.set_key = mt7603_set_key,
 	.conf_tx = mt7603_conf_tx,
 	.sw_scan_start = mt7603_sw_scan,
@@ -561,6 +565,7 @@ const struct ieee80211_ops mt7603_ops = {
 	.sta_rate_tbl_update = mt7603_sta_rate_tbl_update,
 	.release_buffered_frames = mt76_release_buffered_frames,
 	.set_coverage_class = mt7603_set_coverage_class,
+	.set_tim = mt7603_set_tim,
 };
 
 MODULE_LICENSE("Dual BSD/GPL");

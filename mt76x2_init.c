@@ -131,7 +131,7 @@ mt76_write_mac_initvals(struct mt76x2_dev *dev)
 		{ MT_RX_FILTR_CFG,		0x00015f97 },
 		{ MT_LEGACY_BASIC_RATE,		0x0000017f },
 		{ MT_HT_BASIC_RATE,		0x00004003 },
-		{ MT_PN_PAD_MODE,		0x00000002 },
+		{ MT_PN_PAD_MODE,		0x00000003 },
 		{ MT_TXOP_HLDR_ET,		0x00000002 },
 		{ 0xa44,			0x00000000 },
 		{ MT_HEADER_TRANS_CTRL_REG,	0x00000000 },
@@ -621,6 +621,8 @@ void mt76x2_stop_hardware(struct mt76x2_dev *dev)
 
 void mt76x2_cleanup(struct mt76x2_dev *dev)
 {
+	tasklet_disable(&dev->dfs_pd.dfs_tasklet);
+	tasklet_disable(&dev->pre_tbtt_tasklet);
 	mt76x2_stop_hardware(dev);
 	mt76x2_dma_cleanup(dev);
 	mt76x2_mcu_cleanup(dev);
@@ -635,6 +637,7 @@ struct mt76x2_dev *mt76x2_alloc_device(struct device *pdev)
 		.tx_complete_skb = mt76x2_tx_complete_skb,
 		.rx_skb = mt76x2_queue_rx_skb,
 		.rx_poll_complete = mt76x2_rx_poll_complete,
+		.sta_ps = mt76x2_sta_ps,
 	};
 	struct ieee80211_hw *hw;
 	struct mt76x2_dev *dev;
@@ -659,7 +662,7 @@ static void mt76x2_regd_notifier(struct wiphy *wiphy,
 	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
 	struct mt76x2_dev *dev = hw->priv;
 
-	dev->dfs_pd.region = request->dfs_region;
+	mt76x2_dfs_set_domain(dev, request->dfs_region);
 }
 
 #define CCK_RATE(_idx, _rate) {					\
@@ -847,6 +850,8 @@ int mt76x2_register_device(struct mt76x2_dev *dev)
 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_VHT_IBSS);
 
 	ieee80211_hw_set(hw, SUPPORTS_HT_CCK_RATES);
+	ieee80211_hw_set(hw, SUPPORTS_REORDERING_BUFFER);
+
 	INIT_DELAYED_WORK(&dev->cal_work, mt76x2_phy_calibrate);
 	INIT_DELAYED_WORK(&dev->mac_work, mt76x2_mac_work);
 

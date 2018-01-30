@@ -121,9 +121,25 @@ struct mt76_queue_ops {
 	void (*kick)(struct mt76_dev *dev, struct mt76_queue *q);
 };
 
+enum mt76_wcid_flags {
+	MT_WCID_FLAG_CHECK_PS,
+	MT_WCID_FLAG_PS,
+};
+
 struct mt76_wcid {
+	struct mt76_rx_tid __rcu *aggr[IEEE80211_NUM_TIDS];
+
+	struct work_struct aggr_work;
+
+	unsigned long flags;
+
 	u8 idx;
 	u8 hw_key_idx;
+
+	u8 sta:1;
+
+	u8 rx_check_pn;
+	u8 rx_key_pn[IEEE80211_NUM_TIDS][6];
 
 	__le16 tx_rate;
 	bool tx_rate_set;
@@ -148,6 +164,24 @@ struct mt76_txwi_cache {
 	u32 txwi[8];
 	dma_addr_t dma_addr;
 	struct list_head list;
+};
+
+
+struct mt76_rx_tid {
+	struct rcu_head rcu_head;
+
+	struct mt76_dev *dev;
+
+	spinlock_t lock;
+	struct delayed_work reorder_work;
+
+	u16 head;
+	u8 size;
+	u8 nframes;
+
+	u8 started:1, stopped:1, timer_pending:1;
+
+	struct sk_buff *reorder_buf[];
 };
 
 enum {
@@ -179,6 +213,9 @@ struct mt76_driver_ops {
 		       struct sk_buff *skb);
 
 	void (*rx_poll_complete)(struct mt76_dev *dev, enum mt76_rxq_id q);
+
+	void (*sta_ps)(struct mt76_dev *dev, struct ieee80211_sta *sta,
+		       bool ps);
 };
 
 struct mt76_channel_state {
@@ -248,6 +285,29 @@ struct mt76_rate_power {
 		};
 		s8 all[38];
 	};
+};
+
+struct mt76_rx_status {
+	struct mt76_wcid *wcid;
+
+	unsigned long reorder_time;
+
+	u8 iv[6];
+
+	u8 aggr:1;
+	u8 tid;
+	u16 seqno;
+
+	u16 freq;
+	u32 flag;
+	u8 enc_flags;
+	u8 encoding:2, bw:3;
+	u8 rate_idx;
+	u8 nss;
+	u8 band;
+	u8 signal;
+	u8 chains;
+	s8 chain_signal[IEEE80211_MAX_CHAINS];
 };
 
 #define mt76_rr(dev, ...)	(dev)->mt76.bus->rr(&((dev)->mt76), __VA_ARGS__)
@@ -330,6 +390,17 @@ mtxq_to_txq(struct mt76_txq *mtxq)
 	return container_of(ptr, struct ieee80211_txq, drv_priv);
 }
 
+static inline struct ieee80211_sta *
+wcid_to_sta(struct mt76_wcid *wcid)
+{
+	void *ptr = wcid;
+
+	if (!wcid || !wcid->sta)
+		return NULL;
+
+	return container_of(ptr, struct ieee80211_sta, drv_priv);
+}
+
 int mt76_tx_queue_skb(struct mt76_dev *dev, struct mt76_queue *q,
 		      struct sk_buff *skb, struct mt76_wcid *wcid,
 		      struct ieee80211_sta *sta);
@@ -353,9 +424,19 @@ void mt76_set_channel(struct mt76_dev *dev);
 int mt76_get_survey(struct ieee80211_hw *hw, int idx,
 		    struct survey_info *survey);
 
+int mt76_rx_aggr_start(struct mt76_dev *dev, struct mt76_wcid *wcid, u8 tid,
+		       u16 ssn, u8 size);
+void mt76_rx_aggr_stop(struct mt76_dev *dev, struct mt76_wcid *wcid, u8 tid);
+
+void mt76_wcid_key_setup(struct mt76_dev *dev, struct mt76_wcid *wcid,
+			 struct ieee80211_key_conf *key);
+
 /* internal */
 void mt76_tx_free(struct mt76_dev *dev);
 void mt76_put_txwi(struct mt76_dev *dev, struct mt76_txwi_cache *t);
-void mt76_rx_complete(struct mt76_dev *dev, enum mt76_rxq_id q);
+void mt76_rx_complete(struct mt76_dev *dev, struct sk_buff_head *frames,
+		      int queue);
+void mt76_rx_poll_complete(struct mt76_dev *dev, enum mt76_rxq_id q);
+void mt76_rx_aggr_reorder(struct sk_buff *skb, struct sk_buff_head *frames);
 
 #endif

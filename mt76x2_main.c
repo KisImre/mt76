@@ -83,7 +83,6 @@ mt76x2_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 	struct mt76x2_dev *dev = hw->priv;
 	struct mt76x2_vif *mvif = (struct mt76x2_vif *) vif->drv_priv;
 	unsigned int idx = 0;
-	int ret = 0;
 
 	if (vif->addr[0] & BIT(1))
 		idx = 1 + (((dev->mt76.macaddr[0] ^ vif->addr[0]) >> 2) & 7);
@@ -109,7 +108,7 @@ mt76x2_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 	mvif->group_wcid.hw_key_idx = -1;
 	mt76x2_txq_init(dev, vif->txq);
 
-	return ret;
+	return 0;
 }
 
 static void
@@ -128,6 +127,7 @@ mt76x2_set_channel(struct mt76x2_dev *dev, struct cfg80211_chan_def *chandef)
 	mt76_set_channel(&dev->mt76);
 
 	tasklet_disable(&dev->pre_tbtt_tasklet);
+	tasklet_disable(&dev->dfs_pd.dfs_tasklet);
 	cancel_delayed_work_sync(&dev->cal_work);
 
 	mt76x2_mac_stop(dev, true);
@@ -140,6 +140,7 @@ mt76x2_set_channel(struct mt76x2_dev *dev, struct cfg80211_chan_def *chandef)
 	mt76x2_dfs_init_params(dev);
 
 	mt76x2_mac_resume(dev);
+	tasklet_enable(&dev->dfs_pd.dfs_tasklet);
 	tasklet_enable(&dev->pre_tbtt_tasklet);
 
 	return ret;
@@ -272,12 +273,17 @@ mt76x2_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		goto out;
 	}
 
+	msta->vif = mvif;
+	msta->wcid.sta = 1;
 	msta->wcid.idx = idx;
 	msta->wcid.hw_key_idx = -1;
 	mt76x2_mac_wcid_setup(dev, idx, mvif->idx, sta->addr);
 	mt76x2_mac_wcid_set_drop(dev, idx, false);
 	for (i = 0; i < ARRAY_SIZE(sta->txq); i++)
 		mt76x2_txq_init(dev, sta->txq[i]);
+
+	if (vif->type == NL80211_IFTYPE_AP)
+		set_bit(MT_WCID_FLAG_CHECK_PS, &msta->wcid.flags);
 
 	rcu_assign_pointer(dev->wcid[idx], &msta->wcid);
 
@@ -308,23 +314,14 @@ mt76x2_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	return 0;
 }
 
-static void
-mt76x2_sta_notify(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
-		  enum sta_notify_cmd cmd, struct ieee80211_sta *sta)
+void
+mt76x2_sta_ps(struct mt76_dev *mdev, struct ieee80211_sta *sta, bool ps)
 {
 	struct mt76x2_sta *msta = (struct mt76x2_sta *) sta->drv_priv;
-	struct mt76x2_dev *dev = hw->priv;
+	struct mt76x2_dev *dev = container_of(mdev, struct mt76x2_dev, mt76);
 	int idx = msta->wcid.idx;
 
-	switch (cmd) {
-	case STA_NOTIFY_SLEEP:
-		mt76x2_mac_wcid_set_drop(dev, idx, true);
-		mt76_stop_tx_queues(&dev->mt76, sta, true);
-		break;
-	case STA_NOTIFY_AWAKE:
-		mt76x2_mac_wcid_set_drop(dev, idx, false);
-		break;
-	}
+	mt76x2_mac_wcid_set_drop(dev, idx, ps);
 }
 
 static int
@@ -368,6 +365,7 @@ mt76x2_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 
 		key = NULL;
 	}
+	mt76_wcid_key_setup(&dev->mt76, wcid, key);
 
 	if (!msta) {
 		if (key || wcid->hw_key_idx == idx) {
@@ -387,8 +385,10 @@ mt76x2_conf_tx(struct ieee80211_hw *hw, struct ieee80211_vif *vif, u16 queue,
 	       const struct ieee80211_tx_queue_params *params)
 {
 	struct mt76x2_dev *dev = hw->priv;
-	u8 cw_min = 5, cw_max = 10;
+	u8 cw_min = 5, cw_max = 10, qid;
 	u32 val;
+
+	qid = dev->mt76.q_tx[queue].hw_idx;
 
 	if (params->cw_min)
 		cw_min = fls(params->cw_min);
@@ -399,26 +399,26 @@ mt76x2_conf_tx(struct ieee80211_hw *hw, struct ieee80211_vif *vif, u16 queue,
 	      FIELD_PREP(MT_EDCA_CFG_AIFSN, params->aifs) |
 	      FIELD_PREP(MT_EDCA_CFG_CWMIN, cw_min) |
 	      FIELD_PREP(MT_EDCA_CFG_CWMAX, cw_max);
-	mt76_wr(dev, MT_EDCA_CFG_AC(queue), val);
+	mt76_wr(dev, MT_EDCA_CFG_AC(qid), val);
 
-	val = mt76_rr(dev, MT_WMM_TXOP(queue));
-	val &= ~(MT_WMM_TXOP_MASK << MT_WMM_TXOP_SHIFT(queue));
-	val |= params->txop << MT_WMM_TXOP_SHIFT(queue);
-	mt76_wr(dev, MT_WMM_TXOP(queue), val);
+	val = mt76_rr(dev, MT_WMM_TXOP(qid));
+	val &= ~(MT_WMM_TXOP_MASK << MT_WMM_TXOP_SHIFT(qid));
+	val |= params->txop << MT_WMM_TXOP_SHIFT(qid);
+	mt76_wr(dev, MT_WMM_TXOP(qid), val);
 
 	val = mt76_rr(dev, MT_WMM_AIFSN);
-	val &= ~(MT_WMM_AIFSN_MASK << MT_WMM_AIFSN_SHIFT(queue));
-	val |= params->aifs << MT_WMM_AIFSN_SHIFT(queue);
+	val &= ~(MT_WMM_AIFSN_MASK << MT_WMM_AIFSN_SHIFT(qid));
+	val |= params->aifs << MT_WMM_AIFSN_SHIFT(qid);
 	mt76_wr(dev, MT_WMM_AIFSN, val);
 
 	val = mt76_rr(dev, MT_WMM_CWMIN);
-	val &= ~(MT_WMM_CWMIN_MASK << MT_WMM_CWMIN_SHIFT(queue));
-	val |= cw_min << MT_WMM_CWMIN_SHIFT(queue);
+	val &= ~(MT_WMM_CWMIN_MASK << MT_WMM_CWMIN_SHIFT(qid));
+	val |= cw_min << MT_WMM_CWMIN_SHIFT(qid);
 	mt76_wr(dev, MT_WMM_CWMIN, val);
 
 	val = mt76_rr(dev, MT_WMM_CWMAX);
-	val &= ~(MT_WMM_CWMAX_MASK << MT_WMM_CWMAX_SHIFT(queue));
-	val |= cw_max << MT_WMM_CWMAX_SHIFT(queue);
+	val &= ~(MT_WMM_CWMAX_MASK << MT_WMM_CWMAX_SHIFT(qid));
+	val |= cw_max << MT_WMM_CWMAX_SHIFT(qid);
 	mt76_wr(dev, MT_WMM_CWMAX, val);
 
 	return 0;
@@ -483,9 +483,11 @@ mt76x2_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 
 	switch (action) {
 	case IEEE80211_AMPDU_RX_START:
+		mt76_rx_aggr_start(&dev->mt76, &msta->wcid, tid, *ssn, params->buf_size);
 		mt76_set(dev, MT_WCID_ADDR(msta->wcid.idx) + 4, BIT(16 + tid));
 		break;
 	case IEEE80211_AMPDU_RX_STOP:
+		mt76_rx_aggr_stop(&dev->mt76, &msta->wcid, tid);
 		mt76_clear(dev, MT_WCID_ADDR(msta->wcid.idx) + 4,
 			   BIT(16 + tid));
 		break;
@@ -541,6 +543,12 @@ static void mt76x2_set_coverage_class(struct ieee80211_hw *hw,
 	mutex_unlock(&dev->mutex);
 }
 
+static int
+mt76x2_set_tim(struct ieee80211_hw *hw, struct ieee80211_sta *sta, bool set)
+{
+	return 0;
+}
+
 const struct ieee80211_ops mt76x2_ops = {
 	.tx = mt76x2_tx,
 	.start = mt76x2_start,
@@ -552,7 +560,6 @@ const struct ieee80211_ops mt76x2_ops = {
 	.bss_info_changed = mt76x2_bss_info_changed,
 	.sta_add = mt76x2_sta_add,
 	.sta_remove = mt76x2_sta_remove,
-	.sta_notify = mt76x2_sta_notify,
 	.set_key = mt76x2_set_key,
 	.conf_tx = mt76x2_conf_tx,
 	.sw_scan_start = mt76x2_sw_scan,
@@ -565,5 +572,6 @@ const struct ieee80211_ops mt76x2_ops = {
 	.release_buffered_frames = mt76_release_buffered_frames,
 	.set_coverage_class = mt76x2_set_coverage_class,
 	.get_survey = mt76_get_survey,
+	.set_tim = mt76x2_set_tim,
 };
 
